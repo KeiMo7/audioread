@@ -129,3 +129,15 @@ def audio_open(path, backends=None):
 
     # All backends failed!
     raise NoBackendError()
+
+
+# Opt-in resumable batch decoding. Importing it here does not change
+# any existing behavior; the checkpoint layer only activates when
+# `decode_batch` is called explicitly.
+from .resume import (  # noqa: E402
+    decode_batch,
+    BatchResult,
+    ResumeError,
+    StateCorruptedError,
+    BatchConflictError,
+)

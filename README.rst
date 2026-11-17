@@ -57,6 +57,55 @@ current system.
 
 Audioread supports Python 3 (3.9+).
 
+Resumable batch decoding
+------------------------
+
+For large batch jobs, the opt-in ``audioread.decode_batch`` function adds
+checkpoint/resume on top of the normal decoding path. Existing callers of
+``audio_open`` are unaffected: nothing changes unless you call
+``decode_batch`` explicitly::
+
+    import audioread
+
+    result = audioread.decode_batch(
+        ['a.mp3', 'b.flac', 'c.wav'],
+        output_dir='decoded/',          # one .raw file per input
+        state_path='decoded/.batch.state.json',  # optional, this is the default
+    )
+    print(result.completed, result.skipped, result.failed)
+
+Behavior:
+
+- Progress is persisted to the state file after every item and updated
+  atomically (temporary file + rename), so even ``kill -9`` cannot leave
+  a half-written state file. Outputs are likewise written to a temporary
+  file and renamed only when complete.
+- Re-running the same batch skips items whose recorded output still
+  matches its size and SHA-256 checksum; anything else is decoded again.
+  Runs are idempotent.
+- Per-item failures are recorded in the state file and retried on the
+  next run (disable with ``retry_failed=False``) without aborting the
+  rest of the batch.
+- A corrupted state file raises ``audioread.StateCorruptedError``
+  instead of silently restarting the batch. A concurrent run over the
+  same state file raises ``audioread.BatchConflictError``.
+- The state format is versioned; unknown fields written by newer
+  versions are ignored when reading.
+
+Migration example: an existing loop like ::
+
+    for path in inputs:
+        with audioread.audio_open(path) as f:
+            pcm = b''.join(f)
+        save(path, pcm)
+
+becomes resumable by delegating the loop to the batch runner (defaults
+match the current behavior; no new configuration is required)::
+
+    result = audioread.decode_batch(inputs, output_dir='decoded/')
+    for path, error in result.failed.items():
+        print('failed:', path, error)
+
 Example
 -------
 
@@ -77,6 +126,12 @@ Version History
 ---------------
 
 Upcoming
+  Add opt-in resumable batch decoding via `audioread.decode_batch`
+  (new module `audioread/resume.py`) with atomic, versioned checkpoint
+  state, per-item failure recording and retry, stale-output validation,
+  and concurrent-run detection. The existing `audio_open` API and its
+  behavior are unchanged.
+
   Optimize raw backend PCM conversion path in `audioread/rawread.py`. This skips
   a Python loop and can increase loading times by up to a factor of 150x.
 
